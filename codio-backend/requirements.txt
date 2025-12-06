@@ -1,0 +1,24 @@
+# Codio Pause-to-Code Backend Requirements
+
+# Core Framework
+flask==3.1.0
+flask-cors==5.0.0
+
+# Google Gemini API
+google-generativeai==0.8.3
+
+# Video Processing
+yt-dlp==2024.12.6
+opencv-python-headless==4.10.0.84
+numpy==2.2.0
+pillow==11.0.0
+
+# Utilities
+python-dotenv==1.0.1
+
+# Production Server
+gunicorn==23.0.0
+
+# Development
+pytest==8.3.4
+requests==2.32.3
