@@ -15,6 +15,15 @@ interface VideoPlayerProps {
 }
 
 export default function VideoPlayer({ videoId, onPause, onPauseToCoding, onFullscreen, onTimeUpdate, resumeFromTime, title }: VideoPlayerProps) {
+  console.log(`[VideoPlayer] Component mounted/updated with videoId: ${videoId}`)
+  console.log(`[VideoPlayer] Callbacks provided:`, {
+    hasOnPause: !!onPause,
+    hasOnPauseToCoding: !!onPauseToCoding,
+    hasOnFullscreen: !!onFullscreen,
+    hasOnTimeUpdate: !!onTimeUpdate,
+    resumeFromTime
+  })
+  
   const playerRef = useRef<any>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const timeUpdateIntervalRef = useRef<NodeJS.Timeout | null>(null)
@@ -97,9 +106,12 @@ export default function VideoPlayer({ videoId, onPause, onPauseToCoding, onFulls
         },
         events: {
           onReady: (event: any) => {
+            console.log(`[VideoPlayer] YouTube player is ready for video: ${videoId}`)
             setIsReady(true)
-            setDuration(event.target.getDuration())
+            const videoDuration = event.target.getDuration()
+            setDuration(videoDuration)
             setError(null)
+            console.log(`[VideoPlayer] Video duration: ${videoDuration}s`)
             
             if (timeUpdateIntervalRef.current) {
               clearInterval(timeUpdateIntervalRef.current)
@@ -112,28 +124,69 @@ export default function VideoPlayer({ videoId, onPause, onPauseToCoding, onFulls
                 onTimeUpdate?.(time, playing)
               }
             }, 1000)
+            console.log(`[VideoPlayer] Time update interval started`)
           },
           onStateChange: (event: any) => {
             const playing = event.data === 1
             const paused = event.data === 2
             const buffering = event.data === 3
+            const ended = event.data === 0
+            const cued = event.data === 5
+            
+            console.log(`[VideoPlayer] State change detected:`, {
+              stateCode: event.data,
+              playing,
+              paused,
+              buffering,
+              ended,
+              cued,
+              wasPlaying: wasPlayingRef.current,
+              timestamp: event.target?.getCurrentTime()
+            })
             
             if (playing) {
+              console.log(`[VideoPlayer] Video started playing, setting wasPlayingRef = true`)
               wasPlayingRef.current = true
             }
             
             setIsPlaying(playing)
+            console.log(`[VideoPlayer] Updated isPlaying state to: ${playing}`)
             
             if (paused) {
               const currentTime = event.target.getCurrentTime()
+              console.log(`[VideoPlayer] Video paused at ${currentTime}s`, {
+                wasPlaying: wasPlayingRef.current,
+                buffering,
+                hasOnPauseToCoding: !!onPauseToCoding
+              })
               
+              console.log(`[VideoPlayer] Checking pause-to-code trigger conditions:`);
+              console.log(`  - Condition 1 (wasPlaying): ${wasPlayingRef.current}`);
+              console.log(`  - Condition 2 (!buffering): ${!buffering}`);
+              console.log(`  - Condition 3 (hasCallback): ${!!onPauseToCoding}`);
+              
+              // Trigger pause-to-code if:
+              // 1. Video was playing before (wasPlayingRef.current)
+              // 2. Not buffering (to avoid false triggers during loading)
+              // 3. onPauseToCoding callback exists
               if (wasPlayingRef.current && !buffering && onPauseToCoding) {
-                console.log(`[VideoPlayer] Pause detected at ${currentTime}s - triggering pause-to-code`)
+                console.log(`[VideoPlayer] TRIGGERING pause-to-code at ${currentTime}s`);
+                console.log(`[VideoPlayer] Calling onPauseToCoding callback...`);
                 onPauseToCoding(currentTime)
+                console.log(`[VideoPlayer] onPauseToCoding callback executed`);
                 wasPlayingRef.current = false
+                console.log(`[VideoPlayer] Reset wasPlayingRef to false`)
+              } else {
+                const reason = !wasPlayingRef.current ? 'Video was not playing before' : 
+                               buffering ? 'Video is buffering' : 
+                               'No onPauseToCoding callback';
+                console.log(`[VideoPlayer] NOT triggering pause-to-code. Reason: ${reason}`);
               }
               
-              onPause?.(currentTime)
+              if (onPause) {
+                console.log(`[VideoPlayer] Calling onPause callback at ${currentTime}s`);
+                onPause(currentTime);
+              }
             }
             
             if (playerRef.current) {

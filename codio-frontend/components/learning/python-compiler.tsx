@@ -11,15 +11,23 @@ interface PythonCompilerProps {
 }
 
 export default function PythonCompiler({ onClose, isFullscreen = false, initialCode }: PythonCompilerProps) {
-  const [code, setCode] = useState(initialCode || `# Welcome to Codio Python Compiler
-# Write your Python code here
+  console.log(`[PythonCompiler] Component mounted with:`, {
+    hasInitialCode: !!initialCode,
+    initialCodeLength: initialCode?.length || 0,
+    isFullscreen
+  })
+  
+  const [code, setCode] = useState(initialCode || `# No code detected at this timestamp
+# 
+# This could mean:
+# - The instructor is explaining concepts without showing code
+# - The video is in a learning/theory phase
+# - No code is visible on screen at this moment
+#
+# Try pausing when you see code on the video screen.
+# You can also write your own code here!
 
-print("Hello, Codio!")
-print("2 + 2 =", 2 + 2)
-
-# Try writing your own code below:
-for i in range(1, 4):
-    print(f"Number: {i}")
+print("Write your Python code here...")
 `)
   const [output, setOutput] = useState("")
   const [isRunning, setIsRunning] = useState(false)
@@ -36,8 +44,39 @@ for i in range(1, 4):
   const hasExtractedCode = !!initialCode && !initialCode.includes("Welcome to Codio")
 
   useEffect(() => {
+    console.log(`[PythonCompiler] useEffect triggered - initialCode changed:`, {
+      hasInitialCode: !!initialCode,
+      codeLength: initialCode?.length || 0
+    })
+    
+    // Always replace code with fresh AI-extracted code on each pause
     if (initialCode) {
+      console.log(`[PythonCompiler] Step 1: Setting extracted code (${initialCode.length} chars)`)
+      console.log(`[PythonCompiler] Step 2: Code preview: ${initialCode.substring(0, 100)}...`)
       setCode(initialCode)
+      console.log(`[PythonCompiler] Step 3: Code state updated`)
+      // Clear any previous output when new code is loaded
+      setOutput("")
+      setError("")
+      console.log(`[PythonCompiler] Step 4: Cleared output and error states`)
+    } else {
+      console.log(`[PythonCompiler] WARNING: No code provided, showing placeholder`)
+      // No code detected - show placeholder
+      setCode(`# No code detected at this timestamp
+# 
+# This could mean:
+# - The instructor is explaining concepts without showing code
+# - The video is in a learning/theory phase
+# - No code is visible on screen at this moment
+#
+# Try pausing when you see code on the video screen.
+# You can also write your own code here!
+
+print("Write your Python code here...")
+`)
+      setOutput("")
+      setError("")
+      console.log(`[PythonCompiler] Placeholder code set`)
     }
   }, [initialCode])
 

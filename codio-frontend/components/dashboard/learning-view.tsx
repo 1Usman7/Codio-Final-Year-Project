@@ -22,6 +22,8 @@ interface Video {
 }
 
 export default function LearningView({ playlistUrl, onBack }: LearningViewProps) {
+  console.log(`[LearningView] Component mounted/rendered with playlistUrl: ${playlistUrl}`)
+  
   const [showCompiler, setShowCompiler] = useState(false)
   const [isTransitioning, setIsTransitioning] = useState(false)
   const [videos, setVideos] = useState<Video[]>([])
@@ -33,6 +35,7 @@ export default function LearningView({ playlistUrl, onBack }: LearningViewProps)
   const [processingStatus, setProcessingStatus] = useState<string>("")
   const [videoStatus, setVideoStatus] = useState<string>("not_found")
   const [currentVideoId, setCurrentVideoId] = useState<string>("")
+  console.log(`[LearningView] Current state - currentVideoId: ${currentVideoId}, videoStatus: ${videoStatus}`)
   const [processingProgress, setProcessingProgress] = useState<number>(0)
   const [processingStage, setProcessingStage] = useState<string>("")
   const [watchTime, setWatchTime] = useState<number>(0) // seconds watched
@@ -53,102 +56,146 @@ export default function LearningView({ playlistUrl, onBack }: LearningViewProps)
   }, [playlistUrl])
 
   useEffect(() => {
+    console.log(`[LearningView] ========== useEffect [currentVideoId] TRIGGERED ==========`)
+    console.log(`[LearningView] useEffect dependency - currentVideoId: "${currentVideoId}"`)
+    console.log(`[LearningView] Current videoStatus: ${videoStatus}`)
+    
     if (currentVideoId) {
+      console.log(`[LearningView] currentVideoId is truthy, calling startVideoProcessing...`)
       startVideoProcessing(currentVideoId)
+    } else {
+      console.log(`[LearningView] currentVideoId is empty/falsy, skipping processing`)
     }
+    console.log(`[LearningView] ========== useEffect [currentVideoId] END ==========\n`)
   }, [currentVideoId])
 
   const fetchPlaylistVideos = async () => {
+    console.log(`[LearningView] fetchPlaylistVideos called with URL: ${playlistUrl}`)
+    console.log(`[LearningView] Step 1: Starting playlist fetch process...`)
     try {
       setIsLoading(true)
+      console.log(`[LearningView] Step 2: Set isLoading = true`)
       setProcessingStatus("Fetching playlist information...")
+      console.log(`[LearningView] Step 3: Calling backend API to get playlist videos...`)
 
       // Extract videos from playlist or single video URL
       const response = await api.getPlaylistVideos(playlistUrl)
+      console.log(`[LearningView] Step 4: Received API response:`, response)
 
       if (response.success && response.videos.length > 0) {
+        console.log(`[LearningView] Step 5: Success! Found ${response.videos.length} video(s)`)
+        console.log(`[LearningView] Step 6: Video details:`, response.videos.map((v: Video) => ({ id: v.video_id, title: v.title })))
         setVideos(response.videos)
-        setCurrentVideoId(response.videos[0].video_id)
+        const firstVideoId = response.videos[0].video_id
+        console.log(`[LearningView] Step 7: Setting first video ID: ${firstVideoId}`)
+        setCurrentVideoId(firstVideoId)
+        console.log(`[LearningView] Step 8: Set currentVideoId state to: ${firstVideoId}`)
         setVideoDuration(response.videos[0].duration || 0)
+        console.log(`[LearningView] Step 9: Set video duration: ${response.videos[0].duration}s`)
         toast.success(`Found ${response.videos.length} video${response.videos.length > 1 ? 's' : ''}`)
       } else {
+        console.log(`[LearningView] ERROR: No videos found in response`)
+        console.log(`[LearningView] Response details:`, { success: response.success, videoCount: response.videos?.length })
         toast.error("No videos found")
         setProcessingStatus("No videos found")
       }
     } catch (error: any) {
-      console.error("Error fetching playlist:", error)
+      console.error(`[LearningView] EXCEPTION in fetchPlaylistVideos:`, error)
+      console.error(`[LearningView] Error details:`, { message: error?.message, stack: error?.stack })
       const errorMessage = error?.message || "Error connecting to backend"
       toast.error(errorMessage)
       setProcessingStatus(`Error: ${errorMessage}`)
     } finally {
       setIsLoading(false)
+      console.log(`[LearningView] fetchPlaylistVideos completed (finally block)`)
     }
   }
 
   const startVideoProcessing = async (videoId: string) => {
+    console.log(`[LearningView] startVideoProcessing called for video ID: ${videoId}`)
+    console.log(`[LearningView] Processing Step 1: Checking video status with backend...`)
     try {
-      console.log(`[startVideoProcessing] Starting for video ID: ${videoId}`)
+      console.log(`[LearningView] Processing Step 2: Calling api.getVideoStatus(${videoId})...`)
       
       // Check current status
       const statusResponse = await api.getVideoStatus(videoId)
-      console.log(`[startVideoProcessing] Current status:`, statusResponse)
+      console.log(`[LearningView] Processing Step 3: Backend returned status:`, {
+        status: statusResponse.status,
+        progress: statusResponse.progress,
+        stage: statusResponse.stage
+      })
       
+      console.log(`[LearningView] Processing Step 4: Updating component state...`)
       setVideoStatus(statusResponse.status)
       setProcessingProgress(statusResponse.progress || 0)
       setProcessingStage(statusResponse.stage || "")
+      console.log(`[LearningView] Processing Step 5: State updated - videoStatus=${statusResponse.status}, progress=${statusResponse.progress}`)
 
       if (statusResponse.status === "completed") {
-        console.log(`[startVideoProcessing] Video already completed`)
+        console.log(`[LearningView] Processing Step 6: Video already completed and ready for pause-to-code!`)
         setProcessingStatus("Video ready!")
+        console.log(`[LearningView] Video is ready - user can now pause to extract code`)
         return
       }
 
       if (statusResponse.status === "not_found") {
         // Start processing in background
-        console.log(`[startVideoProcessing] Video not found, starting download...`)
+        console.log(`[LearningView] Processing Step 6: Video not found in backend, initiating download...`)
         setProcessingStatus("Starting video download...")
         
         const videoUrl = `https://www.youtube.com/watch?v=${videoId}`
-        console.log(`[startVideoProcessing] Calling processVideo API for: ${videoUrl}`)
+        console.log(`[LearningView] Processing Step 7: Calling processVideo API with URL: ${videoUrl}`)
         
         api.processVideo(videoUrl).then((response) => {
-          console.log(`[startVideoProcessing] API response:`, response)
+          console.log(`[LearningView] Processing Step 8: processVideo API response received:`, response)
           setProcessingStatus("Video downloaded successfully!")
           setVideoStatus("completed")
           setProcessingProgress(100)
+          console.log(`[LearningView] Processing Step 9: Video download completed, status set to 'completed'`)
         }).catch((error) => {
-          console.error("[startVideoProcessing] Error processing video:", error)
+          console.error(`[LearningView] ERROR in processVideo API:`, error)
+          console.error(`[LearningView] Error details:`, { message: error?.message, stack: error?.stack })
           setProcessingStatus("Processing failed")
         })
       }
 
       // Poll for status updates
       if (processingIntervalRef.current) {
+        console.log(`[LearningView] Processing Step 10: Clearing existing polling interval`)
         clearInterval(processingIntervalRef.current)
       }
 
-      console.log(`[startVideoProcessing] Starting status polling...`)
+      console.log(`[LearningView] Processing Step 11: Starting status polling (every 2 seconds)...`)
       processingIntervalRef.current = setInterval(async () => {
+        console.log(`[LearningView] Poll: Checking video status...`)
         try {
           const status = await api.getVideoStatus(videoId)
-          console.log(`[startVideoProcessing] Poll status:`, status)
+          console.log(`[LearningView] Poll: Status update received:`, {
+            status: status.status,
+            progress: status.progress,
+            stage: status.stage
+          })
           
           setVideoStatus(status.status)
           setProcessingProgress(status.progress || 0)
           setProcessingStage(status.stage || "Processing...")
           
           if (status.status === "completed") {
-            console.log(`[startVideoProcessing] Processing completed!`)
+            console.log(`[LearningView] Poll: Video processing COMPLETED! Stopping poll.`)
             setProcessingStatus("Video ready!")
             if (processingIntervalRef.current) {
               clearInterval(processingIntervalRef.current)
+              console.log(`[LearningView] Poll: Polling interval cleared successfully`)
             }
           } else if (status.status === "downloading") {
             const progressText = status.stage || `Downloading... ${status.progress.toFixed(0)}%`
             setProcessingStatus(progressText)
+            console.log(`[LearningView] Poll: Downloading progress: ${status.progress.toFixed(1)}%`)
+          } else {
+            console.log(`[LearningView] Poll: Current status: ${status.status}`)
           }
         } catch (error) {
-          console.error("[startVideoProcessing] Error checking status:", error)
+          console.error(`[LearningView] Poll: ERROR checking status:`, error)
         }
       }, 2000) // Check every 2 seconds
     } catch (error) {
@@ -157,56 +204,122 @@ export default function LearningView({ playlistUrl, onBack }: LearningViewProps)
   }
 
   const handlePauseToCoding = async (currentTime: number) => {
-    console.log(`[handlePauseToCoding] Triggered at ${currentTime}s, videoStatus: ${videoStatus}`)
+    console.log(`\n=================================================`)
+    console.log(`[LearningView] handlePauseToCoding TRIGGERED`)
+    console.log(`  Timestamp: ${currentTime.toFixed(2)}s`)
+    console.log(`  Video ID: ${currentVideoId}`)
+    console.log(`  Current videoStatus (cached): ${videoStatus}`)
+    console.log(`  Processing Progress: ${processingProgress}%`)
+    console.log(`  Processing Stage: ${processingStage}`)
+    console.log(`=================================================\n`)
     
-    // Only proceed if video is completed
-    if (videoStatus !== "completed") {
-      console.log(`[handlePauseToCoding] Video not ready, status: ${videoStatus}`)
-      toast.info("Video is still processing. Please wait.", {
-        description: "You can continue watching while processing completes."
-      })
+    console.log(`[LearningView] Pause-to-Code Step 1: Re-checking video status from backend...`)
+    try {
+      // Always re-check status from backend to avoid stale state
+      const freshStatus = await api.getVideoStatus(currentVideoId)
+      console.log(`[LearningView] Pause-to-Code Step 2: Fresh status from backend: ${freshStatus.status}`)
+      
+      // Check if video is completed and ready for code extraction
+      if (freshStatus.status !== "completed") {
+        console.log(`[LearningView] Pause-to-Code Step 3: Video NOT ready for code extraction`)
+        console.log(`  Current status: '${freshStatus.status}' (required: 'completed')`)
+        console.log(`  Showing info toast to user...`)
+        toast.info("Video is still processing. Please wait or continue watching.", {
+          description: freshStatus.stage || "Download in progress...",
+          duration: 3000
+        })
+        console.log(`[LearningView] Exiting handlePauseToCoding - video not ready\n`)
+        return
+      }
+      
+      // Update local state with fresh status
+      setVideoStatus(freshStatus.status)
+      console.log(`[LearningView] Pause-to-Code Step 4: Updated local videoStatus to: ${freshStatus.status}`)
+    } catch (error) {
+      console.error(`[LearningView] ERROR checking video status:`, error)
+      toast.error("Failed to check video status")
       return
     }
 
+    console.log(`[LearningView] Pause-to-Code Step 5: Video IS ready! Proceeding with code extraction...`)
+    // Video is ready, extract code at this timestamp
+    console.log(`[LearningView] Pause-to-Code Step 6: Setting paused time to ${currentTime}s`)
     setPausedTime(currentTime)
+    console.log(`[LearningView] Pause-to-Code Step 7: Setting extraction flags...`)
     setIsExtractingCode(true)
     setShowLoadingOverlay(true)
+    console.log(`[LearningView] Pause-to-Code Step 8: Loading overlay displayed`)
 
     try {
-      console.log(`[handlePauseToCoding] Extracting frame at ${currentTime}s for video ${currentVideoId}`)
+      console.log(`[LearningView] Pause-to-Code Step 9: Calling backend API to extract frame...`)
+      console.log(`  Endpoint: /api/v1/video/${currentVideoId}/frame?timestamp=${currentTime}`)
+      console.log(`  Making HTTP GET request...`)
       
-      // Use real-time frame extraction endpoint
+      // Call backend to extract frame and analyze code at this exact timestamp
       const result = await api.getFrameAtTimestamp(currentVideoId, currentTime)
-      console.log(`[handlePauseToCoding] Frame extraction result:`, result)
+      console.log(`[LearningView] Pause-to-Code Step 10: Backend response received:`, result)
 
+      console.log(`[LearningView] Pause-to-Code Step 11: Hiding loading overlay...`)
       setShowLoadingOverlay(false)
 
+      console.log(`[LearningView] Pause-to-Code Step 12: Analyzing response...`)
       if (result.code_content) {
+        // Code detected - show in compiler
+        console.log(`[LearningView] Pause-to-Code Step 13: CODE DETECTED!`)
+        console.log(`  Code length: ${result.code_content.length} characters`)
+        console.log(`  Confidence: ${(result.confidence * 100).toFixed(0)}%`)
+        console.log(`  First 100 chars: ${result.code_content.substring(0, 100)}...`)
+        console.log(`[LearningView] Pause-to-Code Step 14: Setting extracted code in state...`)
         setExtractedCode(result.code_content)
-        console.log(`[handlePauseToCoding] Code extracted successfully`)
-        toast.success(`Code extracted! (Confidence: ${(result.confidence * 100).toFixed(0)}%)`)
+        toast.success(`Code extracted at ${currentTime.toFixed(1)}s!`, {
+          description: `Confidence: ${(result.confidence * 100).toFixed(0)}%`
+        })
+        console.log(`[LearningView] Pause-to-Code Step 15: Opening compiler with extracted code...`)
         setShowCompiler(true)
+        console.log(`[LearningView] Pause-to-Code Step 16: Compiler opened successfully`)
       } else if (result.segment_type === "learning") {
+        // Learning phase (no code visible)
+        console.log(`[LearningView] Pause-to-Code Step 10: Learning phase detected (no code)`)
+        console.log(`  Learning topic: ${result.learning_topic || 'N/A'}`)
         setExtractedCode(undefined)
-        console.log(`[handlePauseToCoding] Learning phase detected`)
-        toast.info(`Learning phase: ${result.learning_topic || "No code at this timestamp"}`)
+        toast.info("Learning phase detected", {
+          description: result.learning_topic || "No code visible at this timestamp"
+        })
+        console.log(`[LearningView] Pause-to-Code Step 11: Opening compiler with no-code message...`)
         setShowCompiler(true)
       } else if (result.error) {
+        // Error from backend
+        console.log(`[LearningView] Pause-to-Code Step 10: Backend returned error:`, result.error)
+        console.log(`  Error message: ${result.message}`)
         setExtractedCode(undefined)
-        console.log(`[handlePauseToCoding] Error:`, result.error)
-        toast.info(result.message || "Video still processing")
+        toast.error(result.message || "Failed to extract code")
+        console.log(`[LearningView] Not opening compiler due to error`)
+        return
       } else {
+        // No code found at this timestamp
+        console.log(`[LearningView] Pause-to-Code Step 10: No code detected at ${currentTime}s`)
         setExtractedCode(undefined)
-        console.log(`[handlePauseToCoding] No code found`)
-        toast.info("No code found at this timestamp")
+        toast.info("No code detected at this timestamp", {
+          description: "Try pausing when code is visible on screen"
+        })
+        console.log(`[LearningView] Pause-to-Code Step 11: Opening compiler with placeholder message...`)
         setShowCompiler(true)
       }
-    } catch (error) {
-      console.error("[handlePauseToCoding] Error getting code:", error)
+    } catch (error: any) {
+      console.error(`[LearningView] EXCEPTION in handlePauseToCoding:`, error)
+      console.error(`  Error type: ${error?.name}`)
+      console.error(`  Error message: ${error?.message}`)
+      console.error(`  Error stack:`, error?.stack)
+      console.log(`[LearningView] Pause-to-Code ERROR: Cleaning up...`)
       setShowLoadingOverlay(false)
-      toast.error("Failed to extract code")
+      setIsExtractingCode(false)
+      toast.error("Failed to extract code", {
+        description: error?.message || "Backend connection error"
+      })
+      console.log(`[LearningView] Error handled, overlay hidden`)
     } finally {
       setIsExtractingCode(false)
+      console.log(`[LearningView] handlePauseToCoding completed (finally block)\n`)
     }
   }
 
@@ -362,24 +475,39 @@ export default function LearningView({ playlistUrl, onBack }: LearningViewProps)
     <div className="flex gap-0 h-[calc(100vh-80px)] bg-background">
       {/* Main Content - Video and Compiler Container */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Back Button and Status */}
+        {/* Back Button and Dynamic Processing Status */}
         <div className="px-6 py-4 border-b border-border/50 flex items-center justify-between">
           <Button onClick={onBack} variant="outline" className="text-sm bg-transparent">
             ← Back to Dashboard
           </Button>
           
-          {/* Processing Status Only */}
-          {videoStatus === "processing" && (
-            <div className="flex items-center gap-2 text-sm">
+          {/* Dynamic Processing Status Indicator */}
+          {videoStatus === "downloading" && (
+            <div className="flex items-center gap-3 text-sm">
               <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary"></div>
               <div className="flex flex-col items-start">
-                <span className="text-xs text-muted-foreground">{processingStage}</span>
+                <span className="text-xs text-muted-foreground">Downloading video...</span>
+                <span className="font-semibold text-primary">{processingProgress.toFixed(1)}%</span>
+              </div>
+            </div>
+          )}
+          {videoStatus === "processing" && (
+            <div className="flex items-center gap-3 text-sm">
+              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary"></div>
+              <div className="flex flex-col items-start">
+                <span className="text-xs text-muted-foreground">{processingStage || "Processing..."}</span>
                 <span className="font-semibold text-primary">{processingProgress.toFixed(0)}%</span>
               </div>
             </div>
           )}
           {videoStatus === "completed" && (
-            <div className="text-sm text-green-600 font-semibold">Ready (100%)</div>
+            <div className="flex items-center gap-2 text-sm">
+              <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse"></div>
+              <span className="text-green-600 font-semibold">Video Ready - Pause to extract code</span>
+            </div>
+          )}
+          {videoStatus === "not_found" && (
+            <div className="text-sm text-muted-foreground">Preparing video...</div>
           )}
         </div>
 

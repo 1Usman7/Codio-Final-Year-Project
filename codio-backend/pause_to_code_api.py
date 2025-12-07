@@ -70,10 +70,16 @@ def process_video():
         "message": "Video downloaded successfully"
     }
     """
+    request_id = f"req_{datetime.now().timestamp()}"
+    logger.info(f"[{request_id}] ========== /api/v1/video/process START ==========")
+    
     try:
+        logger.info(f"[{request_id}] Step 1: Parsing request JSON...")
         data = request.get_json()
+        logger.info(f"[{request_id}] Step 2: Request data: {data}")
         
         if not data or 'youtube_url' not in data:
+            logger.error(f"[{request_id}] ERROR - Missing youtube_url")
             return jsonify({
                 "success": False,
                 "error": "Missing youtube_url in request body"
@@ -83,20 +89,24 @@ def process_video():
         full_process = data.get('full_process', False)  # Default to lazy loading
         force_reprocess = data.get('force_reprocess', False)
         
-        logger.info(f"Video request: {youtube_url} (full_process={full_process})")
+        logger.info(f"[{request_id}] Step 3: URL={youtube_url}, full_process={full_process}")
         
         # Validate URL
+        logger.info(f"[{request_id}] Step 4: Validating YouTube URL...")
         if not ('youtube.com' in youtube_url or 'youtu.be' in youtube_url):
+            logger.error(f"[{request_id}] ERROR - Invalid YouTube URL")
             return jsonify({
                 "success": False,
                 "error": "Invalid YouTube URL"
             }), 400
         
+        logger.info(f"[{request_id}] Step 5: URL validation passed")
         start_time = datetime.now()
         
         if full_process:
             # Full processing mode (extract all frames upfront)
-            logger.info("🔄 Full processing mode")
+            logger.info(f"[{request_id}] Step 6: Full processing mode")
+            logger.info(f"[{request_id}] Step 7: Calling service.process_video()...")
             analysis = service.process_video(youtube_url, force_reprocess)
             processing_time = (datetime.now() - start_time).total_seconds()
             
@@ -122,9 +132,12 @@ def process_video():
             }), 200
         else:
             # Lazy loading mode (download only, extract frames on-demand)
-            logger.info("⚡ Lazy loading mode (download only)")
+            logger.info(f"[{request_id}] Step 6: Lazy loading mode (download only)")
+            logger.info(f"[{request_id}] Step 7: Calling service.download_video_only()...")
             result = service.download_video_only(youtube_url)
             processing_time = (datetime.now() - start_time).total_seconds()
+            logger.info(f"[{request_id}] Step 8: Download completed in {processing_time}s")
+            logger.info(f"[{request_id}] Step 9: Result: {result}")
             
             # Log request
             request_log.append({
@@ -142,13 +155,17 @@ def process_video():
             }), 200
         
     except Exception as e:
-        logger.error(f"Error processing video: {e}")
+        logger.error(f"[{request_id}] EXCEPTION: {e}")
+        logger.error(f"[{request_id}] Type: {type(e).__name__}")
+        logger.error(f"[{request_id}] Traceback:")
         logger.error(traceback.format_exc())
         return jsonify({
             "success": False,
             "error": str(e),
             "message": "Failed to process video"
         }), 500
+    finally:
+        logger.info(f"[{request_id}] ========== /api/v1/video/process END ==========\n")
 
 
 @app.route('/api/v1/video/<video_id>/code', methods=['GET'])
@@ -477,29 +494,45 @@ def get_playlist_videos():
         ]
     }
     """
+    request_id = f"playlist_{datetime.now().timestamp()}"
+    logger.info(f"[{request_id}] ========== /api/v1/playlist/videos START ==========")
+    
     try:
+        logger.info(f"[{request_id}] Step 1: Parsing request JSON...")
         data = request.get_json()
+        logger.info(f"[{request_id}] Step 2: Request data: {data}")
         
         if not data or 'playlist_url' not in data:
+            logger.error(f"[{request_id}] ERROR - Missing playlist_url")
             return jsonify({
                 "success": False,
                 "error": "Missing playlist_url in request body"
             }), 400
         
         playlist_url = data['playlist_url']
+        logger.info(f"[{request_id}] Step 3: Playlist URL: {playlist_url}")
+        logger.info(f"[{request_id}] Step 4: Calling service.get_playlist_videos()...")
         videos = service.get_playlist_videos(playlist_url)
+        logger.info(f"[{request_id}] Step 5: Retrieved {len(videos)} videos")
+        logger.info(f"[{request_id}] Step 6: Videos: {[v['video_id'] for v in videos]}")
         
+        logger.info(f"[{request_id}] Step 7: Returning success response")
         return jsonify({
             "success": True,
             "videos": videos
         }), 200
         
     except Exception as e:
-        logger.error(f"Error getting playlist videos: {e}")
+        logger.error(f"[{request_id}] EXCEPTION: {e}")
+        logger.error(f"[{request_id}] Type: {type(e).__name__}")
+        logger.error(f"[{request_id}] Traceback:")
+        logger.error(traceback.format_exc())
         return jsonify({
             "success": False,
             "error": str(e)
         }), 500
+    finally:
+        logger.info(f"[{request_id}] ========== /api/v1/playlist/videos END ==========\n")
 
 
 @app.route('/api/v1/video/<video_id>/status', methods=['GET'])
@@ -515,20 +548,30 @@ def get_video_status(video_id):
         "progress": 45.5
     }
     """
+    request_id = f"status_{datetime.now().timestamp()}"
+    logger.info(f"[{request_id}] ========== /api/v1/video/{video_id}/status START ==========")
+    
     try:
+        logger.info(f"[{request_id}] Step 1: Calling service.get_video_status({video_id})...")
         status = service.get_video_status(video_id)
+        logger.info(f"[{request_id}] Step 2: Status retrieved: {status}")
         
+        logger.info(f"[{request_id}] Step 3: Returning success response")
         return jsonify({
             "success": True,
             **status
         }), 200
         
     except Exception as e:
-        logger.error(f"Error getting video status: {e}")
+        logger.error(f"[{request_id}] EXCEPTION: {e}")
+        logger.error(f"[{request_id}] Traceback:")
+        logger.error(traceback.format_exc())
         return jsonify({
             "success": False,
             "error": str(e)
         }), 500
+    finally:
+        logger.info(f"[{request_id}] ========== /api/v1/video/{video_id}/status END ==========\n")
 
 
 @app.route('/api/v1/video/<video_id>/cancel', methods=['POST'])
@@ -574,28 +617,42 @@ def get_frame_at_timestamp(video_id):
         "segment_type": "code|learning"
     }
     """
+    request_id = f"frame_{datetime.now().timestamp()}"
+    logger.info(f"[{request_id}] ========== /api/v1/video/{video_id}/frame START ==========")
+    
     try:
+        logger.info(f"[{request_id}] Step 1: Parsing query parameters...")
         timestamp = request.args.get('timestamp', type=float)
+        logger.info(f"[{request_id}] Step 2: Timestamp parameter: {timestamp}")
         
         if timestamp is None:
+            logger.error(f"[{request_id}] ERROR - Missing timestamp parameter")
             return jsonify({
                 "success": False,
                 "error": "Missing timestamp parameter"
             }), 400
         
+        logger.info(f"[{request_id}] Step 3: Calling service.extract_frame_and_analyze({video_id}, {timestamp})...")
         result = service.extract_frame_and_analyze(video_id, timestamp)
+        logger.info(f"[{request_id}] Step 4: Frame analysis result: {result}")
         
+        logger.info(f"[{request_id}] Step 5: Returning success response")
         return jsonify({
             "success": True,
             **result
         }), 200
         
     except Exception as e:
-        logger.error(f"Error extracting frame: {e}")
+        logger.error(f"[{request_id}] EXCEPTION: {e}")
+        logger.error(f"[{request_id}] Type: {type(e).__name__}")
+        logger.error(f"[{request_id}] Traceback:")
+        logger.error(traceback.format_exc())
         return jsonify({
             "success": False,
             "error": str(e)
         }), 500
+    finally:
+        logger.info(f"[{request_id}] ========== /api/v1/video/{video_id}/frame END ==========\n")
 
 
 if __name__ == '__main__':

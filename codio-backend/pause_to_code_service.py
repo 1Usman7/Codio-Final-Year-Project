@@ -17,7 +17,10 @@ import yt_dlp
 import numpy as np
 from dataclasses import dataclass, asdict
 import hashlib
+from dotenv import load_dotenv
 
+# Load environment variables from .env file
+load_dotenv()
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -25,9 +28,14 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Configure Gemini API
-GEMINI_API_KEY = "AIzaSyBZeilm4aGSwEaYXSH2g2Rh-10XtstWdDk"
-genai.configure(api_key=GEMINI_API_KEY)
+# Configure Gemini API - Use environment variable for security
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+if not GEMINI_API_KEY:
+    logger.error("CRITICAL: GEMINI_API_KEY environment variable not set!")
+    logger.error("Please set it by running: export GEMINI_API_KEY='your-api-key'")
+else:
+    genai.configure(api_key=GEMINI_API_KEY)
+    logger.info("Gemini API configured successfully")
 
 
 @dataclass
@@ -389,109 +397,117 @@ class PauseToCodeService:
         }
         logger.info(f"STAGE 1/3: Downloading video {video_id}")
         
-        # Download and process video
-        video_path, metadata = self.processor.download_video(youtube_url)
-        
-        self.processing_progress[video_id].update({
-            'status': 'extracting',
-            'progress': 15,
-            'stage': 'Extracting frames...'
-        })
-        logger.info(f"STAGE 2/3: Extracting frames from video")
-        
-        # Extract frames at fixed intervals
-        frames_data = self.processor.extract_frames_fixed_interval(video_path, frame_interval)
-        
-        total_frames = len(frames_data)
-        self.processing_progress[video_id].update({
-            'status': 'analyzing',
-            'progress': 20,
-            'stage': f'Analyzing {total_frames} frames with AI...',
-            'total_frames': total_frames,
-            'current_frame': 0
-        })
-        logger.info(f"🤖 STAGE 3/3: Analyzing {total_frames} frames with Gemini AI")
-        logger.info(f"{'='*60}")
-        
-        # Analyze each frame
-        code_segments = []
-        prev_code = None
-        
-        for idx, (frame, timestamp, frame_number) in enumerate(frames_data):
-            current_frame = idx + 1
-            progress = 20 + int((current_frame / total_frames) * 75)  # 20% to 95%
+        try:
+            # Download and process video
+            video_path, metadata = self.processor.download_video(youtube_url)
             
             self.processing_progress[video_id].update({
-                'progress': progress,
-                'current_frame': current_frame,
-                'stage': f'Analyzing frame {current_frame}/{total_frames}'
+                'status': 'extracting',
+                'progress': 15,
+                'stage': 'Extracting frames...'
             })
+            logger.info(f"STAGE 2/3: Extracting frames from video")
             
-            minutes = int(timestamp // 60)
-            seconds = int(timestamp % 60)
-            logger.info(f"📊 Frame {current_frame}/{total_frames} ({progress}%) - Timestamp {minutes:02d}:{seconds:02d}")
+            # Extract frames at fixed intervals
+            frames_data = self.processor.extract_frames_fixed_interval(video_path, frame_interval)
             
-            analysis = self.extractor.analyze_frame(frame, timestamp)
+            total_frames = len(frames_data)
+            self.processing_progress[video_id].update({
+                'status': 'analyzing',
+                'progress': 20,
+                'stage': f'Analyzing {total_frames} frames with AI...',
+                'total_frames': total_frames,
+                'current_frame': 0
+            })
+            logger.info(f"🤖 STAGE 3/3: Analyzing {total_frames} frames with Gemini AI")
+            logger.info(f"{'='*60}")
             
-            # Create code segment
-            segment = CodeSegment(
-                timestamp=timestamp,
-                frame_number=frame_number,
-                segment_type=analysis['segment_type'],
-                code_content=analysis.get('code_content'),
-                learning_topic=analysis.get('learning_topic'),
-                confidence=analysis.get('confidence', 0.0),
-                language=analysis.get('language', 'python'),
-                code_complete=analysis.get('code_complete', False)
+            # Analyze each frame
+            code_segments = []
+            prev_code = None
+            
+            for idx, (frame, timestamp, frame_number) in enumerate(frames_data):
+                current_frame = idx + 1
+                progress = 20 + int((current_frame / total_frames) * 75)  # 20% to 95%
+                
+                self.processing_progress[video_id].update({
+                    'progress': progress,
+                    'current_frame': current_frame,
+                    'stage': f'Analyzing frame {current_frame}/{total_frames}'
+                })
+                
+                minutes = int(timestamp // 60)
+                seconds = int(timestamp % 60)
+                logger.info(f"📊 Frame {current_frame}/{total_frames} ({progress}%) - Timestamp {minutes:02d}:{seconds:02d}")
+                
+                analysis = self.extractor.analyze_frame(frame, timestamp)
+                
+                # Create code segment
+                segment = CodeSegment(
+                    timestamp=timestamp,
+                    frame_number=frame_number,
+                    segment_type=analysis['segment_type'],
+                    code_content=analysis.get('code_content'),
+                    learning_topic=analysis.get('learning_topic'),
+                    confidence=analysis.get('confidence', 0.0),
+                    language=analysis.get('language', 'python'),
+                    code_complete=analysis.get('code_complete', False)
+                )
+                
+                # Add all segments for precise timestamp queries
+                code_segments.append(segment)
+                if segment.code_content:
+                    prev_code = segment.code_content
+            
+            # Create video analysis
+            video_analysis = VideoAnalysis(
+                video_id=video_id,
+                video_title=metadata['title'],
+                duration=metadata['duration'],
+                total_frames_analyzed=len(frames_data),
+                code_segments=code_segments,
+                metadata=metadata,
+                extraction_date=datetime.now().isoformat()
             )
             
-            # Add all segments for precise timestamp queries
-            code_segments.append(segment)
-            if segment.code_content:
-                prev_code = segment.code_content
+            # Update progress to completed
+            self.processing_progress[video_id].update({
+                'status': 'completed',
+                'progress': 95,
+                'stage': 'Saving analysis...'
+            })
+            logger.info(f"Saving analysis to cache...")
+            
+            # Cache the analysis
+            self._cache_analysis(video_analysis, cache_file)
+            
+            self.processing_progress[video_id].update({
+                'status': 'completed',
+                'progress': 100,
+                'stage': 'Completed!'
+            })
+            logger.info(f"{'='*60}")
+            logger.info(f"VIDEO PROCESSING COMPLETE!")
+            logger.info(f"   Video ID: {video_id}")
+            logger.info(f"   Title: {metadata['title']}")
+            logger.info(f"   Duration: {int(metadata['duration']//60)}m {int(metadata['duration']%60)}s")
+            logger.info(f"   Frames Analyzed: {len(frames_data)}")
+            logger.info(f"   Code Segments Found: {sum(1 for s in code_segments if s.code_content)}")
+            logger.info(f"{'='*60}")
+            
+            # Cleanup video file
+            if os.path.exists(video_path):
+                os.remove(video_path)
+                logger.info("Cleaned up video file")
+            
+            return video_analysis
         
-        # Create video analysis
-        video_analysis = VideoAnalysis(
-            video_id=video_id,
-            video_title=metadata['title'],
-            duration=metadata['duration'],
-            total_frames_analyzed=len(frames_data),
-            code_segments=code_segments,
-            metadata=metadata,
-            extraction_date=datetime.now().isoformat()
-        )
-        
-        # Update progress to completed
-        self.processing_progress[video_id].update({
-            'status': 'completed',
-            'progress': 95,
-            'stage': 'Saving analysis...'
-        })
-        logger.info(f"Saving analysis to cache...")
-        
-        # Cache the analysis
-        self._cache_analysis(video_analysis, cache_file)
-        
-        self.processing_progress[video_id].update({
-            'status': 'completed',
-            'progress': 100,
-            'stage': 'Completed!'
-        })
-        logger.info(f"{'='*60}")
-        logger.info(f"VIDEO PROCESSING COMPLETE!")
-        logger.info(f"   Video ID: {video_id}")
-        logger.info(f"   Title: {metadata['title']}")
-        logger.info(f"   Duration: {int(metadata['duration']//60)}m {int(metadata['duration']%60)}s")
-        logger.info(f"   Frames Analyzed: {len(frames_data)}")
-        logger.info(f"   Code Segments Found: {sum(1 for s in code_segments if s.code_content)}")
-        logger.info(f"{'='*60}")
-        
-        # Cleanup video file
-        if os.path.exists(video_path):
-            os.remove(video_path)
-            logger.info("Cleaned up video file")
-        
-        return video_analysis
+        except Exception as e:
+            # Clean up failed processing from progress tracking
+            logger.error(f"Video processing failed for {video_id}: {e}")
+            if video_id in self.processing_progress:
+                del self.processing_progress[video_id]
+            raise
     
     def download_video_only(
         self,
@@ -534,30 +550,37 @@ class PauseToCodeService:
         }
         logger.info(f"Starting download for video {video_id}")
         
-        # Download video
-        downloaded_path, metadata = self.processor.download_video(youtube_url, video_id)
-        
-        # Create minimal cache entry (no frames analyzed yet)
-        video_analysis = VideoAnalysis(
-            video_id=video_id,
-            video_title=metadata['title'],
-            duration=metadata['duration'],
-            total_frames_analyzed=0,
-            code_segments=[],
-            metadata=metadata,
-            extraction_date=datetime.now().isoformat()
-        )
-        
-        # Cache the minimal analysis
-        self._cache_analysis(video_analysis, cache_file)
-        
-        # Mark as completed
-        self.processing_progress[video_id].update({
-            'status': 'completed',
-            'progress': 100,
-            'stage': 'Download complete!'
-        })
-        logger.info(f"Video downloaded: {metadata['title']}")
+        try:
+            # Download video
+            downloaded_path, metadata = self.processor.download_video(youtube_url, video_id)
+            
+            # Create minimal cache entry (no frames analyzed yet)
+            video_analysis = VideoAnalysis(
+                video_id=video_id,
+                video_title=metadata['title'],
+                duration=metadata['duration'],
+                total_frames_analyzed=0,
+                code_segments=[],
+                metadata=metadata,
+                extraction_date=datetime.now().isoformat()
+            )
+            
+            # Cache the minimal analysis
+            self._cache_analysis(video_analysis, cache_file)
+            
+            # Mark as completed
+            self.processing_progress[video_id].update({
+                'status': 'completed',
+                'progress': 100,
+                'stage': 'Download complete!'
+            })
+            logger.info(f"Video downloaded: {metadata['title']}")
+        except Exception as e:
+            # Clean up failed download from progress tracking
+            logger.error(f"Download failed for {video_id}: {e}")
+            if video_id in self.processing_progress:
+                del self.processing_progress[video_id]
+            raise
         
         return {
             'video_id': video_id,
