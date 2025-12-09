@@ -10,6 +10,8 @@ import { toast } from "sonner"
 
 interface LearningViewProps {
   playlistUrl: string
+  playlistTitle: string
+  userEmail: string
   onBack: () => void
 }
 
@@ -21,8 +23,8 @@ interface Video {
   url: string
 }
 
-export default function LearningView({ playlistUrl, onBack }: LearningViewProps) {
-  console.log(`[LearningView] Component mounted/rendered with playlistUrl: ${playlistUrl}`)
+export default function LearningView({ playlistUrl, playlistTitle, userEmail, onBack }: LearningViewProps) {
+  console.log(`[LearningView] Component mounted/rendered with playlistUrl: ${playlistUrl}, user: ${userEmail}`)
   
   const [showCompiler, setShowCompiler] = useState(false)
   const [isTransitioning, setIsTransitioning] = useState(false)
@@ -35,14 +37,18 @@ export default function LearningView({ playlistUrl, onBack }: LearningViewProps)
   const [processingStatus, setProcessingStatus] = useState<string>("")
   const [videoStatus, setVideoStatus] = useState<string>("not_found")
   const [currentVideoId, setCurrentVideoId] = useState<string>("")
-  console.log(`[LearningView] Current state - currentVideoId: ${currentVideoId}, videoStatus: ${videoStatus}`)
+  const [playlistId, setPlaylistId] = useState<string>("") // Playlist ID extracted from URL
   const [processingProgress, setProcessingProgress] = useState<number>(0)
   const [processingStage, setProcessingStage] = useState<string>("")
   const [watchTime, setWatchTime] = useState<number>(0) // seconds watched
   const [videoDuration, setVideoDuration] = useState<number>(0) // total video duration
   const [isVideoPlaying, setIsVideoPlaying] = useState<boolean>(false)
   const [showLoadingOverlay, setShowLoadingOverlay] = useState<boolean>(false)
+
+  console.log(`[LearningView] Current state - currentVideoId: ${currentVideoId}, videoStatus: ${videoStatus}`)
   const [isExtractingCode, setIsExtractingCode] = useState<boolean>(false)
+  // Track watch progress for each video: { video_id: { watchedSeconds: number, duration: number, completed: boolean } }
+  const [videoProgress, setVideoProgress] = useState<Record<string, { watchedSeconds: number, duration: number, completed: boolean }>>({})
   const processingIntervalRef = useRef<NodeJS.Timeout | null>(null)
 
   useEffect(() => {
@@ -54,6 +60,42 @@ export default function LearningView({ playlistUrl, onBack }: LearningViewProps)
       }
     }
   }, [playlistUrl])
+
+  // Helper function to extract playlist ID from URL
+  const extractPlaylistId = (url: string): string => {
+    try {
+      const urlObj = new URL(url)
+      const listParam = urlObj.searchParams.get('list')
+      return listParam || url // Use list parameter or fallback to URL if single video
+    } catch {
+      return url
+    }
+  }
+
+  // Load saved progress when playlist ID is set
+  useEffect(() => {
+    const loadSavedProgress = async () => {
+      if (!playlistId || !userEmail) return;
+      
+      try {
+        const response = await api.getPlaylistProgress(userEmail, playlistId)
+        console.log(`[LearningView] Loaded saved progress:`, response)
+        
+        if (response.success && response.progress) {
+          setVideoProgress(response.progress)
+          console.log(`[LearningView] Restored progress for ${Object.keys(response.progress).length} videos`)
+        }
+      } catch (error) {
+        console.error(`[LearningView] Error loading saved progress:`, error)
+        // Continue without saved progress
+      }
+    };
+    
+    if (playlistId && userEmail) {
+      console.log(`[LearningView] Loading saved progress for ${userEmail}/${playlistId}`)
+      loadSavedProgress()
+    }
+  }, [playlistId, userEmail])
 
   useEffect(() => {
     console.log(`[LearningView] ========== useEffect [currentVideoId] TRIGGERED ==========`)
@@ -84,14 +126,40 @@ export default function LearningView({ playlistUrl, onBack }: LearningViewProps)
 
       if (response.success && response.videos.length > 0) {
         console.log(`[LearningView] Step 5: Success! Found ${response.videos.length} video(s)`)
-        console.log(`[LearningView] Step 6: Video details:`, response.videos.map((v: Video) => ({ id: v.video_id, title: v.title })))
+        console.log(`[LearningView] Step 6: Playlist title: ${response.playlist_title}`)
+        console.log(`[LearningView] Step 7: Video details:`, response.videos.map((v: Video) => ({ id: v.video_id, title: v.title })))
         setVideos(response.videos)
+        
+        // Extract and save playlist ID
+        const extractedPlaylistId = extractPlaylistId(playlistUrl)
+        setPlaylistId(extractedPlaylistId)
+        console.log(`[LearningView] Step 8: Extracted playlist ID: ${extractedPlaylistId}`)
+        
+        // Use the playlist title from API response instead of the passed title
+        const actualPlaylistTitle = response.playlist_title || playlistTitle
+        console.log(`[LearningView] Step 9: Using playlist title: ${actualPlaylistTitle}`)
+        
+        // Save playlist to backend for this user
+        console.log(`[LearningView] Step 10: Saving playlist to backend for user ${userEmail}...`)
+        try {
+          await api.saveUserPlaylist(
+            userEmail,
+            extractedPlaylistId,
+            playlistUrl,
+            actualPlaylistTitle,
+            response.videos.length
+          )
+          console.log(`[LearningView] Playlist saved to backend successfully`)
+        } catch (saveError) {
+          console.error(`[LearningView] Error saving playlist (continuing anyway):`, saveError)
+        }
+        
         const firstVideoId = response.videos[0].video_id
-        console.log(`[LearningView] Step 7: Setting first video ID: ${firstVideoId}`)
+        console.log(`[LearningView] Step 11: Setting first video ID: ${firstVideoId}`)
         setCurrentVideoId(firstVideoId)
-        console.log(`[LearningView] Step 8: Set currentVideoId state to: ${firstVideoId}`)
+        console.log(`[LearningView] Step 12: Set currentVideoId state to: ${firstVideoId}`)
         setVideoDuration(response.videos[0].duration || 0)
-        console.log(`[LearningView] Step 9: Set video duration: ${response.videos[0].duration}s`)
+        console.log(`[LearningView] Step 13: Set video duration: ${response.videos[0].duration}s`)
         toast.success(`Found ${response.videos.length} video${response.videos.length > 1 ? 's' : ''}`)
       } else {
         console.log(`[LearningView] ERROR: No videos found in response`)
@@ -382,6 +450,7 @@ export default function LearningView({ playlistUrl, onBack }: LearningViewProps)
   const handleSelectVideo = async (index: number) => {
     if (index === currentVideoIndex) return
 
+    console.log(`[Video Switch] From index ${currentVideoIndex} to ${index}`)
     setIsTransitioning(true)
     
     // Cancel current video processing
@@ -399,10 +468,17 @@ export default function LearningView({ playlistUrl, onBack }: LearningViewProps)
     }
 
     setTimeout(() => {
+      const newVideoId = videos[index].video_id
+      const savedProgress = videoProgress[newVideoId]
+      
+      console.log(`[Video Switch] Loading video ${newVideoId}`)
+      console.log(`[Video Switch] Saved progress:`, savedProgress || 'None')
+      
       setCurrentVideoIndex(index)
-      setCurrentVideoId(videos[index].video_id)
+      setCurrentVideoId(newVideoId)
       setVideoDuration(videos[index].duration || 0)
-      setWatchTime(0) // Reset watch time for new video
+      // Load saved watch time if exists, otherwise start from 0
+      setWatchTime(savedProgress?.watchedSeconds || 0)
       setShowCompiler(false)
       setVideoStatus("not_found")
       setProcessingProgress(0)
@@ -416,8 +492,50 @@ export default function LearningView({ playlistUrl, onBack }: LearningViewProps)
 
   const handleTimeUpdate = (currentTime: number, isPlaying: boolean) => {
     // Only count watch time when video is actually playing
-    if (isPlaying) {
-      setWatchTime(Math.floor(currentTime))
+    if (isPlaying && currentVideoId && videoDuration > 0 && playlistId && userEmail) {
+      const watchedSeconds = Math.floor(currentTime)
+      setWatchTime(watchedSeconds)
+      
+      // Calculate completion percentage (90% threshold)
+      const completionPercentage = (watchedSeconds / videoDuration) * 100
+      const isCompleted = completionPercentage >= 90
+      
+      // Update progress for current video
+      setVideoProgress(prev => {
+        const wasCompleted = prev[currentVideoId]?.completed || false
+        const newProgress = {
+          ...prev,
+          [currentVideoId]: {
+            watchedSeconds,
+            duration: videoDuration,
+            completed: isCompleted || wasCompleted
+          }
+        }
+        
+        // Save progress to backend (debounced - every 5 seconds or on completion)
+        if (watchedSeconds % 5 === 0 || (isCompleted && !wasCompleted)) {
+          console.log(`[Progress] Saving to backend: ${userEmail}/${playlistId}/${currentVideoId} - ${watchedSeconds}s`)
+          
+          // Fire and forget - don't block UI
+          api.saveVideoProgress(
+            userEmail,
+            playlistId,
+            currentVideoId,
+            watchedSeconds,
+            videoDuration,
+            isCompleted || wasCompleted
+          ).catch(error => {
+            console.error(`[Progress] Error saving to backend:`, error)
+          })
+        }
+        
+        // Log when video gets marked as completed
+        if (isCompleted && !wasCompleted) {
+          console.log(`[Progress] Video ${currentVideoId} marked as COMPLETED (${completionPercentage.toFixed(1)}% watched)`)
+        }
+        
+        return newProgress
+      })
     }
     setIsVideoPlaying(isPlaying)
   }
@@ -561,6 +679,7 @@ export default function LearningView({ playlistUrl, onBack }: LearningViewProps)
           onSelectVideo={handleSelectVideo}
           watchedTime={watchTime}
           totalTime={videoDuration}
+          videoProgress={videoProgress}
         />
       )}
     </div>

@@ -168,12 +168,13 @@ class VideoProcessor:
         self.output_dir.mkdir(exist_ok=True)
         self.service = service  # Reference to PauseToCodeService for progress tracking
         
-    def download_video(self, youtube_url: str, video_id_for_progress: str = None) -> Tuple[str, Dict]:
+    def download_video(self, youtube_url: str, video_id_for_progress: str = None, playlist_id: str = None) -> Tuple[str, Dict]:
         """Download YouTube video and return path + metadata
         
         Args:
             youtube_url: YouTube video URL
             video_id_for_progress: Optional video ID for progress tracking
+            playlist_id: Optional playlist ID for folder organization
         """
         try:
             logger.info(f"Downloading video from: {youtube_url}")
@@ -214,12 +215,23 @@ class VideoProcessor:
                     "video_id": video_id
                 }
             
-            # Create filename with video ID and title
-            filename = f"{video_id}_{safe_title}.mp4"
-            output_path = str(self.output_dir / filename)
+            # Create folder structure: videos/{playlist_id}/{video_id}/video.mp4
+            # Use simple safe names to avoid issues with special characters
+            # Playlist folder: use playlist_id (first 20 chars) or 'single'
+            # Video folder: use video_id (unique identifier)
+            playlist_folder = playlist_id[:20] if playlist_id else 'single'
+            video_folder = self.output_dir.resolve() / playlist_folder / video_id
+            video_folder.mkdir(parents=True, exist_ok=True)
             
-            logger.info(f"Filename: {filename}")
-            logger.info(f"Output path: {output_path}")
+            # Always name the file 'video.mp4' inside the video's folder
+            filename = "video.mp4"
+            output_path = str(video_folder / filename)
+            
+            logger.info(f"📁 Folder structure:")
+            logger.info(f"   Playlist folder: {playlist_folder}")
+            logger.info(f"   Video folder: {video_id}")
+            logger.info(f"   Full path: {output_path}")
+            logger.info(f"   Folder created: {video_folder.exists()}")
             
             # Progress hook to update download status
             def progress_hook(d):
@@ -266,10 +278,24 @@ class VideoProcessor:
             
             # Download video
             logger.info(f"Starting download...")
+            logger.info(f"yt-dlp will download to: {output_path}")
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([youtube_url])
             
-            logger.info(f"Video downloaded successfully: {output_path}")
+            # Verify file exists after download
+            if os.path.exists(output_path):
+                file_size = os.path.getsize(output_path) / (1024 * 1024)  # Size in MB
+                logger.info(f"✅ Video downloaded successfully: {output_path}")
+                logger.info(f"✅ File size: {file_size:.2f} MB")
+                logger.info(f"✅ File verified to exist on filesystem")
+            else:
+                logger.error(f"ERROR: Video file NOT found at expected path: {output_path}")
+                logger.error(f"ERROR: Checking if file exists elsewhere...")
+                # List all mp4 files in output directory
+                all_mp4s = list(output_dir_abs.glob("*.mp4"))
+                logger.error(f"ERROR: MP4 files in directory: {[f.name for f in all_mp4s]}")
+                raise FileNotFoundError(f"Downloaded video not found at {output_path}")
+            
             return output_path, metadata
             
         except Exception as e:
@@ -384,7 +410,7 @@ class PauseToCodeService:
         cache_file = self.cache_dir / f"{video_id}_analysis.json"
         
         if cache_file.exists() and not force_reprocess:
-            logger.info(f"✓ Loading cached analysis for {video_id}")
+            logger.info(f"Loading cached analysis for {video_id}")
             return self._load_cached_analysis(cache_file)
         
         # Initialize progress tracking
@@ -398,8 +424,10 @@ class PauseToCodeService:
         logger.info(f"STAGE 1/3: Downloading video {video_id}")
         
         try:
+            # Extract playlist ID if it's from a playlist URL
+            playlist_id = self._extract_playlist_id(youtube_url)
             # Download and process video
-            video_path, metadata = self.processor.download_video(youtube_url)
+            video_path, metadata = self.processor.download_video(youtube_url, video_id, playlist_id)
             
             self.processing_progress[video_id].update({
                 'status': 'extracting',
@@ -495,10 +523,8 @@ class PauseToCodeService:
             logger.info(f"   Code Segments Found: {sum(1 for s in code_segments if s.code_content)}")
             logger.info(f"{'='*60}")
             
-            # Cleanup video file
-            if os.path.exists(video_path):
-                os.remove(video_path)
-                logger.info("Cleaned up video file")
+            # Keep video file for pause-to-code feature (don't delete)
+            logger.info(f"Video file kept at: {video_path}")
             
             return video_analysis
         
@@ -524,13 +550,16 @@ class PauseToCodeService:
             Dict with video_id, status, title, duration
         """
         video_id = self._extract_video_id(youtube_url)
+        playlist_id = self._extract_playlist_id(youtube_url)
         cache_file = self.cache_dir / f"{video_id}_analysis.json"
         
-        # Check if already downloaded (look for any file starting with video_id)
-        video_dir = self.cache_dir / "videos"
-        video_files = list(video_dir.glob(f"{video_id}*.mp4"))
-        if video_files and cache_file.exists():
-            logger.info(f"✓ Video {video_id} already downloaded")
+        # Check if already downloaded (look for video.mp4 in video's folder)
+        playlist_folder = playlist_id[:20] if playlist_id else 'single'
+        video_folder = self.cache_dir / "videos" / playlist_folder / video_id
+        video_file = video_folder / "video.mp4"
+        
+        if video_file.exists() and cache_file.exists():
+            logger.info(f"Video {video_id} already downloaded at {video_file}")
             analysis = self._load_cached_analysis(cache_file)
             return {
                 'video_id': video_id,
@@ -551,8 +580,10 @@ class PauseToCodeService:
         logger.info(f"Starting download for video {video_id}")
         
         try:
+            # Extract playlist ID if it's from a playlist URL
+            playlist_id = self._extract_playlist_id(youtube_url)
             # Download video
-            downloaded_path, metadata = self.processor.download_video(youtube_url, video_id)
+            downloaded_path, metadata = self.processor.download_video(youtube_url, video_id, playlist_id)
             
             # Create minimal cache entry (no frames analyzed yet)
             video_analysis = VideoAnalysis(
@@ -703,6 +734,15 @@ class PauseToCodeService:
         else:
             return hashlib.md5(youtube_url.encode()).hexdigest()
     
+    def _extract_playlist_id(self, youtube_url: str) -> Optional[str]:
+        """Extract playlist ID from YouTube URL"""
+        import re
+        # Match playlist ID pattern: list=XXXXX
+        match = re.search(r'[?&]list=([^&]+)', youtube_url)
+        if match:
+            return match.group(1)
+        return None
+    
     def _cache_analysis(self, analysis: VideoAnalysis, cache_file: Path):
         """Save analysis to cache"""
         data = {
@@ -737,10 +777,10 @@ class PauseToCodeService:
             extraction_date=data['extraction_date']
         )
     
-    def get_playlist_videos(self, playlist_url: str) -> List[Dict]:
+    def get_playlist_videos(self, playlist_url: str) -> Dict:
         """
         Extract list of videos from a YouTube playlist
-        Returns list of video metadata without downloading
+        Returns playlist metadata and video list without downloading
         """
         try:
             logger.info(f"Extracting playlist info from: {playlist_url}")
@@ -756,15 +796,20 @@ class PauseToCodeService:
                 
                 # Handle single video URL
                 if info.get('_type') != 'playlist':
-                    return [{
-                        'video_id': info.get('id'),
-                        'title': info.get('title', 'Unknown'),
-                        'thumbnail': info.get('thumbnail', ''),
-                        'duration': info.get('duration', 0),
-                        'url': f"https://www.youtube.com/watch?v={info.get('id')}"
-                    }]
+                    video_title = info.get('title', 'Unknown')
+                    return {
+                        'playlist_title': video_title,
+                        'videos': [{
+                            'video_id': info.get('id'),
+                            'title': video_title,
+                            'thumbnail': info.get('thumbnail', ''),
+                            'duration': info.get('duration', 0),
+                            'url': f"https://www.youtube.com/watch?v={info.get('id')}"
+                        }]
+                    }
                 
                 # Handle playlist
+                playlist_title = info.get('title', 'Unknown Playlist')
                 videos = []
                 for entry in info.get('entries', []):
                     if entry:
@@ -776,8 +821,11 @@ class PauseToCodeService:
                             'url': f"https://www.youtube.com/watch?v={entry.get('id')}"
                         })
                 
-                logger.info(f"Found {len(videos)} videos in playlist")
-                return videos
+                logger.info(f"Found {len(videos)} videos in playlist: {playlist_title}")
+                return {
+                    'playlist_title': playlist_title,
+                    'videos': videos
+                }
                 
         except Exception as e:
             logger.error(f"Error extracting playlist: {e}")
@@ -856,23 +904,55 @@ class PauseToCodeService:
                 part_file.unlink()
                 logger.info(f"Removed partial file: {part_file}")
     
-    def extract_frame_and_analyze(self, video_id: str, timestamp: float) -> Dict:
+    def extract_frame_and_analyze(self, video_id: str, timestamp: float, playlist_id: str = None) -> Dict:
         """
         Extract frame at specific timestamp and analyze with VLM
         This is for real-time analysis when user pauses
+        
+        Args:
+            video_id: YouTube video ID
+            timestamp: Timestamp in seconds
+            playlist_id: Optional playlist ID for locating video
         """
         try:
-            # Check if video exists (look for any file starting with video_id)
+            # Find video file in folder structure: videos/{playlist_id}/{video_id}/video.mp4
             video_dir = self.cache_dir / "videos"
-            video_files = list(video_dir.glob(f"{video_id}*.mp4"))
+            video_file = None
             
-            if not video_files:
+            # Try with provided playlist_id first
+            if playlist_id:
+                playlist_folder = playlist_id[:20] if playlist_id else 'single'
+                potential_path = video_dir / playlist_folder / video_id / "video.mp4"
+                if potential_path.exists():
+                    video_file = potential_path
+                    logger.info(f"Found video at: {potential_path}")
+            
+            # If not found, search in 'single' folder
+            if not video_file:
+                potential_path = video_dir / "single" / video_id / "video.mp4"
+                if potential_path.exists():
+                    video_file = potential_path
+                    logger.info(f"Found video in 'single' folder: {potential_path}")
+            
+            # If still not found, search all playlist folders
+            if not video_file:
+                logger.info(f"Searching all playlist folders for video {video_id}...")
+                for playlist_folder in video_dir.iterdir():
+                    if playlist_folder.is_dir():
+                        potential_path = playlist_folder / video_id / "video.mp4"
+                        if potential_path.exists():
+                            video_file = potential_path
+                            logger.info(f"Found video at: {potential_path}")
+                            break
+            
+            if not video_file:
+                logger.error(f"ERROR: Video {video_id} not found in any folder")
                 return {
                     "error": "Video not downloaded yet",
                     "message": "The video is still processing. Please wait."
                 }
             
-            video_path = video_files[0]  # Use first matching file
+            video_path = video_file  # Use found video file
             
             # Extract frame at timestamp
             frame = self.processor.extract_frame_at_timestamp(str(video_path), timestamp)

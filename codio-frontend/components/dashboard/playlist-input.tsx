@@ -2,40 +2,61 @@
 
 import type React from "react"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card } from "@/components/ui/card"
 import { Trash2, Plus } from "lucide-react"
+import { api } from "@/lib/api"
+import { toast } from "sonner"
 
 interface PlaylistInputProps {
-  onStartLearning: (url: string) => void
+  onStartLearning: (url: string, playlistTitle: string) => void
+  userEmail: string
 }
 
 interface SavedPlaylist {
-  id: string
-  url: string
-  title: string
-  addedAt: string
+  playlist_id: string
+  playlist_url: string
+  playlist_title: string
+  total_videos: number
+  completed_videos: number
+  progress_percentage: number
+  first_accessed: string
+  last_accessed: string
 }
 
-export default function PlaylistInput({ onStartLearning }: PlaylistInputProps) {
+export default function PlaylistInput({ onStartLearning, userEmail }: PlaylistInputProps) {
   const [url, setUrl] = useState("")
   const [error, setError] = useState("")
-  const [savedPlaylists, setSavedPlaylists] = useState<SavedPlaylist[]>([
-    {
-      id: "1",
-      url: "https://youtube.com/playlist?list=PLu0W_9lII9agwh1XjRt242xIpHhPT2llg&si=DP6cUGJ7Z5_iX2R9",
-      title: "Python for Beginners",
-      addedAt: "2024-01-15",
-    },
-    {
-      id: "2",
-      url: "https://www.youtube.com/playlist?list=PLrAXtmErZgOdP_sPvB1-p8TSc5_biB35u",
-      title: "Web Development Basics",
-      addedAt: "2024-01-10",
-    },
-  ])
+  const [isLoading, setIsLoading] = useState(false)
+  const [savedPlaylists, setSavedPlaylists] = useState<SavedPlaylist[]>([])
+
+  // Fetch user playlists on mount
+  useEffect(() => {
+    const fetchUserPlaylists = async () => {
+      console.log("[PlaylistInput] Fetching playlists from backend...")
+      setIsLoading(true)
+      
+      try {
+        const response = await api.getUserPlaylists(userEmail)
+        console.log("[PlaylistInput] Received playlists:", response)
+        
+        if (response.success && response.playlists) {
+          setSavedPlaylists(response.playlists)
+          console.log(`[PlaylistInput] Loaded ${response.playlists.length} playlists`)
+        }
+      } catch (error) {
+        console.error("[PlaylistInput] Error fetching playlists:", error)
+        toast.error("Failed to load playlists")
+      } finally {
+        setIsLoading(false)
+      }
+    };
+    
+    console.log("[PlaylistInput] Component mounted, fetching playlists for:", userEmail)
+    fetchUserPlaylists()
+  }, [userEmail])
 
   const validateYouTubeUrl = (urlString: string): boolean => {
     try {
@@ -43,15 +64,6 @@ export default function PlaylistInput({ onStartLearning }: PlaylistInputProps) {
       return urlObj.hostname.includes("youtube.com") || urlObj.hostname.includes("youtu.be")
     } catch {
       return false
-    }
-  }
-
-  const extractPlaylistTitle = (urlString: string): string => {
-    try {
-      const urlObj = new URL(urlString)
-      return urlObj.searchParams.get("list") || "Untitled Playlist"
-    } catch {
-      return "Untitled Playlist"
     }
   }
 
@@ -69,20 +81,31 @@ export default function PlaylistInput({ onStartLearning }: PlaylistInputProps) {
       return
     }
 
-    const newPlaylist: SavedPlaylist = {
-      id: Date.now().toString(),
-      url,
-      title: extractPlaylistTitle(url),
-      addedAt: new Date().toISOString().split("T")[0],
-    }
-
-    setSavedPlaylists([newPlaylist, ...savedPlaylists])
-    onStartLearning(url)
+    console.log("[PlaylistInput] Starting learning with URL:", url)
+    // Pass URL to parent, which will fetch playlist info and save to backend
+    onStartLearning(url, "Loading...")
     setUrl("")
   }
 
-  const handleDeletePlaylist = (id: string) => {
-    setSavedPlaylists(savedPlaylists.filter((p) => p.id !== id))
+  const handleDeletePlaylist = async (playlistId: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    console.log("[PlaylistInput] Deleting playlist:", playlistId)
+    
+    try {
+      const response = await api.deleteUserPlaylist(userEmail, playlistId)
+      
+      if (response.success) {
+        console.log("[PlaylistInput] Playlist deleted successfully")
+        // Remove from local state
+        setSavedPlaylists(savedPlaylists.filter((p) => p.playlist_id !== playlistId))
+        toast.success("Playlist removed")
+      } else {
+        toast.error("Failed to delete playlist")
+      }
+    } catch (error) {
+      console.error("[PlaylistInput] Error deleting playlist:", error)
+      toast.error("Failed to delete playlist")
+    }
   }
 
   return (
@@ -146,27 +169,39 @@ export default function PlaylistInput({ onStartLearning }: PlaylistInputProps) {
       </div>
 
       {/* Saved Playlists Section */}
-      {savedPlaylists.length > 0 && (
+      {isLoading ? (
+        <div className="max-w-4xl mx-auto text-center py-8">
+          <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+          <p className="text-sm text-muted-foreground mt-2">Loading your playlists...</p>
+        </div>
+      ) : savedPlaylists.length > 0 ? (
         <div className="max-w-4xl mx-auto">
           <h3 className="text-xl font-semibold text-foreground mb-4">Recent Playlists</h3>
           <div className="grid gap-3">
             {savedPlaylists.map((playlist) => (
               <Card
-                key={playlist.id}
+                key={playlist.playlist_id}
                 className="p-4 border border-border/50 hover:bg-muted/50 transition-colors cursor-pointer group"
+                onClick={() => onStartLearning(playlist.playlist_url, playlist.playlist_title)}
               >
                 <div className="flex items-center justify-between">
-                  <div className="flex-1" onClick={() => onStartLearning(playlist.url)}>
-                    <h4 className="font-medium text-foreground group-hover:text-primary transition-colors">
-                      {playlist.title}
-                    </h4>
-                    <p className="text-xs text-muted-foreground mt-1">{playlist.addedAt}</p>
+                  <div className="flex-1">
+                    <div className="flex items-center gap-3">
+                      <h4 className="font-medium text-foreground group-hover:text-primary transition-colors">
+                        {playlist.playlist_title}
+                      </h4>
+                      <span className="text-xs px-2 py-1 rounded-full bg-primary/10 text-primary font-medium">
+                        {playlist.progress_percentage.toFixed(0)}% Complete
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground">
+                      <span>{playlist.completed_videos} / {playlist.total_videos} videos completed</span>
+                      <span>•</span>
+                      <span>Last accessed: {new Date(playlist.last_accessed).toLocaleDateString()}</span>
+                    </div>
                   </div>
                   <Button
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      handleDeletePlaylist(playlist.id)
-                    }}
+                    onClick={(e) => handleDeletePlaylist(playlist.playlist_id, e)}
                     variant="ghost"
                     size="sm"
                     className="text-destructive hover:bg-destructive/10"
@@ -177,6 +212,10 @@ export default function PlaylistInput({ onStartLearning }: PlaylistInputProps) {
               </Card>
             ))}
           </div>
+        </div>
+      ) : (
+        <div className="max-w-4xl mx-auto text-center py-8">
+          <p className="text-muted-foreground">No playlists yet. Add one above to get started!</p>
         </div>
       )}
     </div>

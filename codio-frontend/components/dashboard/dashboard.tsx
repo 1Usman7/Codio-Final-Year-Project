@@ -13,15 +13,20 @@ interface DashboardProps {
 export default function Dashboard({ user, onLogout }: DashboardProps) {
   const [currentView, setCurrentView] = useState<"home" | "learning">("home")
   const [playlistUrl, setPlaylistUrl] = useState("")
+  const [playlistTitle, setPlaylistTitle] = useState("")
 
-  const handleStartLearning = (url: string) => {
+  const handleStartLearning = (url: string, title: string) => {
+    console.log("[Dashboard] Starting learning - URL:", url, "Title:", title)
     setPlaylistUrl(url)
+    setPlaylistTitle(title)
     setCurrentView("learning")
   }
 
   const handleBackToHome = () => {
+    console.log("[Dashboard] Returning to home view")
     setCurrentView("home")
     setPlaylistUrl("")
+    setPlaylistTitle("")
   }
 
   return (
@@ -53,9 +58,14 @@ export default function Dashboard({ user, onLogout }: DashboardProps) {
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {currentView === "home" ? (
-          <PlaylistInput onStartLearning={handleStartLearning} />
+          <PlaylistInput onStartLearning={handleStartLearning} userEmail={user.email} />
         ) : (
-          <LearningView playlistUrl={playlistUrl} onBack={handleBackToHome} />
+          <LearningView 
+            playlistUrl={playlistUrl} 
+            playlistTitle={playlistTitle}
+            userEmail={user.email}
+            onBack={handleBackToHome} 
+          />
         )}
       </main>
     </div>

@@ -6,40 +6,53 @@ import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card } from "@/components/ui/card"
+import { api, setTokens } from "@/lib/api"
 
 interface LoginScreenProps {
   onLogin: (email: string, name: string) => void
+  onSwitchToSignup: () => void
 }
 
-export default function LoginScreen({ onLogin }: LoginScreenProps) {
+export default function LoginScreen({ onLogin, onSwitchToSignup }: LoginScreenProps) {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState("")
 
-  // Fake credentials for demo
-  const DEMO_CREDENTIALS = [
-    { email: "student@codio.com", password: "password123", name: "Alex Student" },
-    { email: "learner@codio.com", password: "password123", name: "Jordan Learner" },
-  ]
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError("")
     setIsLoading(true)
+    console.log("[LoginScreen] Attempting login for:", email)
 
-    // Simulate API call
-    await new Promise((resolve) => setTimeout(resolve, 800))
+    try {
+      // Call login API
+      const response = await api.login(email.toLowerCase().trim(), password)
+      console.log("[LoginScreen] Login response:", response)
 
-    const user = DEMO_CREDENTIALS.find((cred) => cred.email === email && cred.password === password)
-
-    if (user) {
-      onLogin(user.email, user.name)
-    } else {
-      setError("Invalid credentials. Try: student@codio.com / password123")
+      if (response.success && response.user) {
+        console.log("[LoginScreen] Login successful")
+        
+        // Store JWT tokens
+        if (response.access_token && response.refresh_token) {
+          console.log("[LoginScreen] Storing JWT tokens")
+          setTokens(response.access_token, response.refresh_token)
+          console.log("[LoginScreen] Tokens stored successfully")
+        } else {
+          console.warn("[LoginScreen] No tokens received in response")
+        }
+        
+        onLogin(response.user.email, response.user.name)
+      } else {
+        console.error("[LoginScreen] Login failed:", response.error)
+        setError(response.error || "Invalid credentials")
+      }
+    } catch (error: any) {
+      console.error("[LoginScreen] Exception during login:", error)
+      setError(error?.message || "Failed to connect to server")
+    } finally {
+      setIsLoading(false)
     }
-
-    setIsLoading(false)
   }
 
   return (
@@ -102,12 +115,18 @@ export default function LoginScreen({ onLogin }: LoginScreenProps) {
             </Button>
           </form>
 
-          <div className="mt-6 pt-6 border-t border-border/50">
-            <p className="text-xs text-muted-foreground text-center mb-3">Demo Credentials:</p>
-            <div className="space-y-2 text-xs text-muted-foreground">
-              <p>Email: student@codio.com</p>
-              <p>Password: password123</p>
-            </div>
+          {/* Switch to Signup */}
+          <div className="mt-6 text-center">
+            <p className="text-sm text-muted-foreground">
+              Don't have an account?{" "}
+              <button
+                onClick={onSwitchToSignup}
+                className="text-primary hover:underline font-medium"
+                disabled={isLoading}
+              >
+                Sign up here
+              </button>
+            </p>
           </div>
         </Card>
 

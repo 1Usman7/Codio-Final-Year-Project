@@ -9,6 +9,7 @@ interface ProgressSidebarProps {
   onSelectVideo: (index: number) => void
   watchedTime?: number  // seconds actually watched
   totalTime?: number    // total video duration in seconds
+  videoProgress?: Record<string, { watchedSeconds: number, duration: number, completed: boolean }>
 }
 
 interface VideoStats {
@@ -17,12 +18,16 @@ interface VideoStats {
   completed: number
 }
 
-export default function ProgressSidebar({ videos, currentVideoIndex, onSelectVideo, watchedTime = 0, totalTime = 0 }: ProgressSidebarProps) {
+export default function ProgressSidebar({ videos, currentVideoIndex, onSelectVideo, watchedTime = 0, totalTime = 0, videoProgress = {} }: ProgressSidebarProps) {
   const [expandedStats, setExpandedStats] = useState(true)
 
-  const completedCount = currentVideoIndex
+  // Calculate actual completed videos (90%+ watched)
+  const completedCount = videos.filter(video => videoProgress[video.video_id]?.completed).length
   const totalCount = videos.length
   const progressPercent = totalCount > 0 ? (completedCount / totalCount) * 100 : 0
+  
+  // Debug logging
+  console.log(`[ProgressSidebar] Completed: ${completedCount}/${totalCount} (${progressPercent.toFixed(1)}%)`, videoProgress)
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60)
@@ -33,8 +38,12 @@ export default function ProgressSidebar({ videos, currentVideoIndex, onSelectVid
   const remainingTime = Math.max(0, totalTime - watchedTime)
 
   const getCompletionStatus = (index: number) => {
-    if (index < currentVideoIndex) return "completed"
+    const video = videos[index]
+    const progress = videoProgress[video.video_id]
+    
     if (index === currentVideoIndex) return "current"
+    if (progress?.completed) return "completed"
+    if (progress?.watchedSeconds > 0) return "in-progress"
     return "pending"
   }
 
@@ -97,23 +106,31 @@ export default function ProgressSidebar({ videos, currentVideoIndex, onSelectVid
                 status === "current"
                   ? "bg-primary/20 border border-primary/50"
                   : status === "completed"
-                    ? "bg-muted/50 border border-border/50 hover:bg-muted"
-                    : "bg-muted/30 border border-border/50 hover:bg-muted/50 opacity-60"
+                    ? "bg-green-500/10 border border-green-500/30 hover:bg-green-500/20"
+                    : status === "in-progress"
+                      ? "bg-yellow-500/10 border border-yellow-500/30 hover:bg-yellow-500/20"
+                      : "bg-muted/30 border border-border/50 hover:bg-muted/50 opacity-60"
               }`}
             >
               <div className="flex items-start gap-3">
                 {/* Status Indicator */}
                 <div className="flex-shrink-0 mt-1">
                   {status === "completed" ? (
-                    <div className="w-5 h-5 rounded-full bg-primary flex items-center justify-center">
-                      <span className="text-xs text-primary-foreground font-bold">✓</span>
+                    <div className="w-5 h-5 rounded-full bg-green-500 flex items-center justify-center">
+                      <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                      </svg>
                     </div>
                   ) : status === "current" ? (
                     <div className="w-5 h-5 rounded-full border-2 border-primary bg-primary/20 flex items-center justify-center">
                       <div className="w-2 h-2 rounded-full bg-primary" />
                     </div>
+                  ) : status === "in-progress" ? (
+                    <div className="w-5 h-5 rounded-full border-2 border-yellow-500 bg-yellow-500/20 flex items-center justify-center">
+                      <div className="w-2 h-2 rounded-full bg-yellow-500" />
+                    </div>
                   ) : (
-                    <div className="w-5 h-5 rounded-full border-2 border-muted-foreground" />
+                    <div className="w-5 h-5 rounded-full border-2 border-muted-foreground/30" />
                   )}
                 </div>
 
