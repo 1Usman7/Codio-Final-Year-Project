@@ -8,7 +8,7 @@ flask-cors==5.0.0
 google-generativeai==0.8.3
 
 # Video Processing
-yt-dlp==2024.12.6
+yt-dlp==2025.12.8
 opencv-python-headless==4.10.0.84
 numpy==2.2.0
 pillow==11.0.0
@@ -22,3 +22,4 @@ gunicorn==23.0.0
 # Development
 pytest==8.3.4
 requests==2.32.3
+PyJWT==2.10.1

@@ -2,9 +2,12 @@
 
 import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import VideoPlayer from "@/components/learning/video-player"
 import PythonCompiler from "@/components/learning/python-compiler"
 import ProgressSidebar from "@/components/learning/progress-sidebar"
+import TranscriptSearch from "@/components/learning/transcript-search"
+import ConceptDetector from "@/components/learning/concept-detector"
 import { api } from "@/lib/api"
 import { toast } from "sonner"
 
@@ -490,6 +493,16 @@ export default function LearningView({ playlistUrl, playlistTitle, userEmail, on
     setIsVideoFullscreen(isFullscreen)
   }
 
+  const handleJumpToTimestamp = (timestamp: number) => {
+    // Seek video to the specified timestamp
+    // VideoPlayer will handle this via resumeFromTime prop
+    setPausedTime(timestamp)
+    setShowCompiler(false)
+    const mins = Math.floor(timestamp / 60)
+    const secs = Math.floor(timestamp % 60)
+    toast.info(`Jumping to ${mins}:${secs.toString().padStart(2, '0')}`)
+  }
+
   const handleTimeUpdate = (currentTime: number, isPlaying: boolean) => {
     // Only count watch time when video is actually playing
     if (isPlaying && currentVideoId && videoDuration > 0 && playlistId && userEmail) {
@@ -664,23 +677,53 @@ export default function LearningView({ playlistUrl, playlistTitle, userEmail, on
         </div>
       </div>
 
-      {/* Progress Sidebar - Only show when compiler is not open */}
+      {/* Right Sidebar - Progress, Transcript Search, and Concepts */}
       {!showCompiler && (
-        <ProgressSidebar 
-          videos={videos.map((v, idx) => ({
-            id: v.video_id,
-            title: v.title,
-            duration: v.duration,
-            description: idx === currentVideoIndex ? 
-              (videoStatus === "completed" ? "Ready" : videoStatus === "processing" ? "Processing..." : "Not processed") 
-              : "Click to play"
-          }))} 
-          currentVideoIndex={currentVideoIndex} 
-          onSelectVideo={handleSelectVideo}
-          watchedTime={watchTime}
-          totalTime={videoDuration}
-          videoProgress={videoProgress}
-        />
+        <div className="w-80 border-l border-border/50 flex flex-col bg-background">
+          <Tabs defaultValue="progress" className="flex flex-col h-full">
+            <TabsList className="grid w-full grid-cols-3 rounded-none border-b">
+              <TabsTrigger value="progress">Progress</TabsTrigger>
+              <TabsTrigger value="transcript">Search</TabsTrigger>
+              <TabsTrigger value="concepts">Concepts</TabsTrigger>
+            </TabsList>
+            
+            <TabsContent value="progress" className="flex-1 m-0 overflow-hidden">
+              <ProgressSidebar 
+                videos={videos.map((v, idx) => ({
+                  id: v.video_id,
+                  title: v.title,
+                  duration: v.duration,
+                  description: idx === currentVideoIndex ? 
+                    (videoStatus === "completed" ? "Ready" : videoStatus === "processing" ? "Processing..." : "Not processed") 
+                    : "Click to play"
+                }))} 
+                currentVideoIndex={currentVideoIndex} 
+                onSelectVideo={handleSelectVideo}
+                watchedTime={watchTime}
+                totalTime={videoDuration}
+                videoProgress={videoProgress}
+              />
+            </TabsContent>
+            
+            <TabsContent value="transcript" className="flex-1 m-0 overflow-hidden">
+              {currentVideoId && (
+                <TranscriptSearch 
+                  videoId={currentVideoId}
+                  onJumpToTimestamp={handleJumpToTimestamp}
+                />
+              )}
+            </TabsContent>
+            
+            <TabsContent value="concepts" className="flex-1 m-0 overflow-hidden">
+              {currentVideoId && (
+                <ConceptDetector 
+                  videoId={currentVideoId}
+                  onJumpToTimestamp={handleJumpToTimestamp}
+                />
+              )}
+            </TabsContent>
+          </Tabs>
+        </div>
       )}
     </div>
   )

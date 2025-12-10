@@ -11,6 +11,7 @@ from pathlib import Path
 import traceback
 from datetime import datetime
 import os
+from dataclasses import asdict
 
 # Import the main service, database, and JWT authentication
 from pause_to_code_service import PauseToCodeService
@@ -1191,6 +1192,113 @@ def delete_user_playlist(email, playlist_id):
         }), 500
     finally:
         logger.info(f"[{request_id}] ========== DELETE /api/v1/user/{email}/playlist/{playlist_id} END ==========\n")
+
+
+@app.route('/api/v1/video/<video_id>/transcript/search', methods=['GET'])
+def search_transcript(video_id):
+    """
+    Search transcript by keywords
+    
+    Query parameters:
+    - query: Search keywords (required)
+    - case_sensitive: true/false (default: false)
+    """
+    request_id = f"req_{datetime.now().timestamp()}"
+    logger.info(f"[{request_id}] ========== GET /api/v1/video/{video_id}/transcript/search START ==========")
+    
+    try:
+        query = request.args.get('query', '').strip()
+        if not query:
+            return jsonify({
+                "success": False,
+                "error": "Missing 'query' parameter"
+            }), 400
+        
+        case_sensitive = request.args.get('case_sensitive', 'false').lower() == 'true'
+        
+        logger.info(f"[{request_id}] Searching transcript for: '{query}' (case_sensitive={case_sensitive})")
+        
+        matches = service.search_transcript(video_id, query, case_sensitive)
+        
+        return jsonify({
+            "success": True,
+            "video_id": video_id,
+            "query": query,
+            "matches_count": len(matches),
+            "matches": matches
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"[{request_id}] Exception: {e}")
+        logger.error(traceback.format_exc())
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+    finally:
+        logger.info(f"[{request_id}] ========== GET /api/v1/video/{video_id}/transcript/search END ==========\n")
+
+
+@app.route('/api/v1/video/<video_id>/concepts', methods=['GET'])
+def get_detected_concepts(video_id):
+    """
+    Get detected concepts for a video
+    """
+    request_id = f"req_{datetime.now().timestamp()}"
+    logger.info(f"[{request_id}] ========== GET /api/v1/video/{video_id}/concepts START ==========")
+    
+    try:
+        concepts = service.get_detected_concepts(video_id)
+        
+        return jsonify({
+            "success": True,
+            "video_id": video_id,
+            "concepts_count": len(concepts),
+            "concepts": concepts
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"[{request_id}] Exception: {e}")
+        logger.error(traceback.format_exc())
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+    finally:
+        logger.info(f"[{request_id}] ========== GET /api/v1/video/{video_id}/concepts END ==========\n")
+
+
+@app.route('/api/v1/video/<video_id>/concepts/detect', methods=['POST'])
+def detect_concepts(video_id):
+    """
+    Detect concepts for a video (analyzes transcript and code segments)
+    This may take a few seconds as it uses AI analysis
+    """
+    request_id = f"req_{datetime.now().timestamp()}"
+    logger.info(f"[{request_id}] ========== POST /api/v1/video/{video_id}/concepts/detect START ==========")
+    
+    try:
+        logger.info(f"[{request_id}] Starting concept detection for video {video_id}")
+        
+        detected_concepts = service.detect_and_store_concepts(video_id)
+        
+        return jsonify({
+            "success": True,
+            "video_id": video_id,
+            "concepts_count": len(detected_concepts),
+            "concepts": [asdict(concept) for concept in detected_concepts],
+            "message": f"Detected {len(detected_concepts)} concepts"
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"[{request_id}] Exception: {e}")
+        logger.error(traceback.format_exc())
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+    finally:
+        logger.info(f"[{request_id}] ========== POST /api/v1/video/{video_id}/concepts/detect END ==========\n")
 
 
 if __name__ == '__main__':
